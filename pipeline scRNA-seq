@@ -1,0 +1,97 @@
+# Script: scripts/1_quality_control.R
+
+library(Seurat)
+
+
+library(ggplot2)
+
+library(dplyr)
+
+
+# Load data (example for 10X Genomics data)
+
+data <- Read10X(data.dir = "data/raw_data/filtered_feature_bc_matrix/")
+
+seurat_obj <- CreateSeuratObject(counts = data, project = "scRNA_project", min.cells = 3, min.features = 200)
+
+
+# Add mitochondrial percentage
+
+seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
+
+
+# QC metrics visualization
+
+qc_violin <- VlnPlot(seurat_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+ggsave("results/figures/qc_violin_plot.pdf", qc_violin, width = 10, height = 6)
+
+# Filter cells
+seurat_obj <- subset(seurat_obj, 
+                    subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & 
+                    percent.mt < 15 & nCount_RNA < 30000)
+
+# Save filtered object
+saveRDS(seurat_obj, "data/processed_data/seurat_filtered.rds")
+
+
+
+#2. Normalization and Feature Selection
+
+# Script: scripts/2_normalization.R
+
+library(Seurat)
+
+library(ggplot2)
+
+seurat_obj <- readRDS("data/processed_data/seurat_filtered.rds")
+
+# Normalization
+
+seurat_obj <- NormalizeData(seurat_obj, normalization.method = "LogNormalize", scale.factor = 10000)
+
+# Find variable features
+
+seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst", nfeatures = 2000)
+
+
+# Identify top variable features
+
+top10 <- head(VariableFeatures(seurat_obj), 10)
+
+var_feat_plot <- VariableFeaturePlot(seurat_obj)
+
+var_feat_plot <- LabelPoints(plot = var_feat_plot, points = top10, repel = TRUE)
+
+ggsave("results/figures/variable_features.pdf", var_feat_plot, width = 8, height = 6)
+
+saveRDS(seurat_obj, "data/processed_data/seurat_normalized.rds")
+
+#3. Data Scaling and Dimensionality Reduction
+
+# Script: scripts/3_dimensionality_reduction.R
+
+library(Seurat)
+library(ggplot2)
+
+seurat_obj <- readRDS("data/processed_data/seurat_normalized.rds")
+
+# Scale data
+all_genes <- rownames(seurat_obj)
+seurat_obj <- ScaleData(seurat_obj, features = all_genes)
+
+# PCA
+seurat_obj <- RunPCA(seurat_obj, features = VariableFeatures(object = seurat_obj))
+
+# Visualize PCA results
+pca_plot <- VizDimLoadings(seurat_obj, dims = 1:2, reduction = "pca")
+ggsave("results/figures/pca_loadings.pdf", pca_plot, width = 10, height = 6)
+
+pca_heatmap <- DimHeatmap(seurat_obj, dims = 1:15, cells = 500, balanced = TRUE)
+ggsave("results/figures/pca_heatmap.pdf", pca_heatmap, width = 10, height = 16)
+
+# Determine dimensionality
+elbow_plot <- ElbowPlot(seurat_obj)
+ggsave("results/figures/elbow_plot.pdf", elbow_plot, width = 6, height = 4)
+
+saveRDS(seurat_obj, "data/processed_data/seurat_pca.rds")
+
